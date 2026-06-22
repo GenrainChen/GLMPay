@@ -24,6 +24,10 @@ bill_report.html
 .claude/
 .playwright-mcp/
 
+# ===== 算法核查脚本(开发用,依赖本地敏感 xlsx) =====
+audit_algo.py
+audit_*.py
+
 # ===== IDE / 编辑器 =====
 .vscode/
 .idea/

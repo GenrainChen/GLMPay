@@ -23,7 +23,6 @@ from dateutil.relativedelta import relativedelta
 
 # ── 配置 ──────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).parent
-PRICING_FILE = SCRIPT_DIR / "glm_pricing.csv"
 TEMPLATE_FILE = SCRIPT_DIR / "report_template.html"
 STYLE_FILE = SCRIPT_DIR / "report_style.css"
 
@@ -34,17 +33,22 @@ COL_DATE = "账期(自然日)"
 COL_PRICE_TYPE = "价格类型"
 COL_AMOUNT = "用量"
 COL_UNIT_PRICE = "单价"
-COL_COST = "理论费用"
+COL_COST = "理论费用"  # 账单无此列;为「用量×单价/1000」重算的按量目录理论费用列名
 COL_PAID = "已付款金额"
 COL_REQUESTS = "请求次数 (仅API)"
 COL_CUSTOMER = "客户id"
 COL_PRODUCT_TYPE = "产品类型"
 COL_PRODUCT_NAME = "模型产品名称"
 SUBSCRIPTION_TYPE = "订阅套餐"
+# 用量行/套餐行依赖的账单原始列(缺失则报错;COL_COST 为重算列不在此列)
+REQUIRED_COLS = [
+    COL_PACKAGE, COL_MODEL, COL_DATE, COL_PRICE_TYPE,
+    COL_AMOUNT, COL_UNIT_PRICE, COL_REQUESTS, COL_CUSTOMER,
+    COL_PRODUCT_TYPE, COL_PRODUCT_NAME, COL_PAID,
+]
 
 # ── 预编译正则 ────────────────────────────────────────
 _RE_MONTH = re.compile(r"(\d{4})-(\d{2})")
-_RE_MONTH_SHORT = re.compile(r"\d{4}-\d{2}")
 
 MODEL_NAMES: dict[str, str] = {
     "glm-5.2": "GLM-5.2",
@@ -54,9 +58,6 @@ MODEL_NAMES: dict[str, str] = {
     "glm-4.7": "GLM-4.7",
     "glm-4.6v": "GLM-4.6V",
     "glm-4.5-air": "GLM-4.5-Air",
-    "search-prime-claude": "Search Prime",
-    "web-reader": "Web Reader",
-    "zread": "ZRead",
 }
 
 PRICE_TYPE_NAMES: dict[str, str] = {
@@ -66,22 +67,7 @@ PRICE_TYPE_NAMES: dict[str, str] = {
     "不区分输入输出": "调用次数",
 }
 
-PACKAGE_COLORS: dict[str, str] = {
-    "GLM Coding Max V2 - 季": "#6366f1",
-    "GLM Coding Max V2 - 月": "#818cf8",
-    "GLM Coding Pro V2 - 季": "#8b5cf6",
-    "联网搜索/读取 - Max - 包季计划": "#06b6d4",
-    "联网搜索/读取 - Pro - 包季计划": "#0ea5e9",
-    "【实名认证】500万GLM-4.7体验包": "#10b981",
-    "【新用户专享】200万通用模型推理资源包": "#f59e0b",
-    "1000万GLM-4.7资源包": "#22c55e",
-}
-
-# 套餐产品名（订阅套餐行的「模型产品名称」）展示名与配色
-PRODUCT_NAMES: dict[str, str] = {
-    "GLM Coding Max": "GLM Coding Max",
-    "GLM Coding Pro": "GLM Coding Pro",
-}
+# 套餐 tier 配色(build_cost_saving 用)
 PRODUCT_COLORS: dict[str, str] = {
     "GLM Coding Max": "#6366f1",
     "GLM Coding Pro": "#8b5cf6",
@@ -94,9 +80,6 @@ MODEL_COLORS: dict[str, str] = {
     "glm-4.7": "#06b6d4",
     "glm-4.5-air": "#10b981",
     "glm-4.6v": "#f59e0b",
-    "search-prime-claude": "#ef4444",
-    "web-reader": "#ec4899",
-    "zread": "#84cc16",
     "glm-5": "#f97316",
 }
 
@@ -112,34 +95,37 @@ PLAN_DISCOUNT = {1: 1.0, 3: 0.9, 12: 0.8}
 SUBSCRIPTIONS = [
     # (账号, 档位, 月数, 生效日期, 实付)
     ("账号A", "Pro", 3, "2026-05-14", 402.30),   # 5/20 升级 Max,提前终止
-    ("账号A", "Max", 3, "2026-05-20", 886.10),   # 升级,公允=Max季价(含Pro折算)
+    ("账号A", "Max", 3, "2026-05-20", 886.10),   # 升级;fair=Max季价1266.30,paid886.10已抵扣Pro剩余价值
     ("账号B", "Max", 1, "2026-06-13", 469.00),   # 独立账号
 ]
 
-# SVG 饼图参数
-PIE_SVG_RADIUS = 18
-PIE_SVG_CIRCUMFERENCE = 2 * math.pi * PIE_SVG_RADIUS
 
 
 # ── 工具函数 ──────────────────────────────────────────
 
 def fmt(n: float | int) -> str:
-    """格式化数值：大数千分位，小数保留适当精度"""
+    """格式化数值:大数千分位,小数保留适当精度;NaN/inf→—,0 与负数安全"""
     if isinstance(n, float):
-        if n >= 1:
+        if math.isnan(n) or math.isinf(n):
+            return "—"
+        if n == 0:
+            return "0"
+        a = abs(n)
+        if a >= 1:
             return f"{n:,.2f}"
-        elif n >= 0.01:
+        if a >= 0.01:
             return f"{n:.4f}"
-        else:
-            return f"{n:.6f}"
+        return f"{n:.6f}"
     return f"{n:,}"
 
 
 def fmt_tok(n: int | float) -> str:
-    """格式化 token 数量为可读形式（K/M）"""
+    """格式化 token 数量为可读形式(K/M);NaN/inf→—"""
+    if isinstance(n, float) and (math.isnan(n) or math.isinf(n)):
+        return "—"
     if n >= 1_000_000:
         return f"{n / 1_000_000:,.1f}M"
-    elif n >= 1_000:
+    if n >= 1_000:
         return f"{n / 1_000:,.1f}K"
     return str(int(n))
 
@@ -151,13 +137,6 @@ def detect_month(filepath: str | Path) -> str:
     if m:
         return f"{m.group(1)}年{int(m.group(2))}月"
     return "未知月份"
-
-
-def detect_month_short(filepath: str | Path) -> str:
-    """从文件名提取短月份标识，如 '2026-05'"""
-    name = Path(filepath).name
-    m = _RE_MONTH_SHORT.search(name)
-    return m.group(0) if m else "unknown"
 
 
 def render(template_str: str, **kwargs: Any) -> str:
@@ -177,8 +156,14 @@ def load_single(filepath: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     warnings.filterwarnings("ignore")
     raw = pd.read_excel(filepath)
-    month_label = detect_month(filepath)
-    month_short = detect_month_short(filepath)
+    # 列存在性校验(账单表头若变更,给出清晰提示而非晦涩的 KeyError)
+    missing = [c for c in REQUIRED_COLS if c not in raw.columns]
+    if missing:
+        raise ValueError(
+            f"账单缺少必需列: {missing}\n"
+            f"实际列名: {list(raw.columns)}\n"
+            f"→ 可能智谱平台导出表头已变更,请核对 analyze_bill.py 顶部的列名常量。"
+        )
 
     # ── 用量行 ──
     usage = raw[raw[COL_PACKAGE].fillna("").astype(str).str.contains("GLM Coding", na=False)].copy()
@@ -186,8 +171,8 @@ def load_single(filepath: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         usage[COL_MODEL] = usage[COL_MODEL].fillna("unknown")
         usage[COL_DATE] = usage[COL_DATE].astype(str)
         usage[COL_COST] = usage[COL_AMOUNT] * usage[COL_UNIT_PRICE] / 1000
-        usage["月份标签"] = month_label
-        usage["月份"] = month_short
+        # 月份基于行日期(与 plan 一致),避免跨月文件时文件名月份≠行日期
+        usage["月份"] = usage[COL_DATE].str[:7]
         usage["日期排序"] = pd.to_datetime(usage[COL_DATE])
         usage = usage.sort_values("日期排序")
 
@@ -204,15 +189,24 @@ def load_single(filepath: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def load_all(files: list[Path]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """加载并合并所有费用文件，返回 (用量行, 订阅套餐行)"""
+    """加载并合并所有费用文件，返回 (用量行, 订阅套餐行)
+
+    单个文件损坏(读取异常)或表头不符(列校验失败)时跳过并警告,不影响其他文件。
+    """
     usages, plans = [], []
     for f in files:
-        u, p = load_single(f)
+        try:
+            u, p = load_single(f)
+        except Exception as e:
+            print(f"  ⚠ 跳过无法解析的文件 {f.name}: {type(e).__name__}: {e}")
+            continue
         usages.append(u)
         plans.append(p)
         cust = u[COL_CUSTOMER].nunique() if (not u.empty and COL_CUSTOMER in u.columns) else 0
-        print(f"  ✓ {detect_month(f)}: 用量 {len(u)} 条 · {u[COL_COST].sum():.2f} 元"
-              f" · 套餐 {len(p)} 笔 · {p[COL_PAID].sum():.2f} 元 · 账号 {cust}")
+        u_cost = u[COL_COST].sum() if (not u.empty and COL_COST in u.columns) else 0.0
+        p_paid = p[COL_PAID].sum() if (not p.empty and COL_PAID in p.columns) else 0.0
+        print(f"  ✓ {detect_month(f)}: 用量 {len(u)} 条 · {u_cost:.2f} 元"
+              f" · 套餐 {len(p)} 笔 · {p_paid:.2f} 元 · 账号 {cust}")
 
     usages_ne = [u for u in usages if not u.empty]
     plans_ne = [p for p in plans if not p.empty]
@@ -284,22 +278,6 @@ def build_sparkline(values: list[float], w: int = 100, h: int = 24) -> str:
             f'<polyline class="spark-line" points="{line}" pathLength="1"/></svg>')
 
 
-def build_rate_trend(rate_map: dict[str, float], all_days: list[str]) -> str:
-    """构建百分比小柱图（如每日缓存命中率，0~100%）"""
-    bars = ""
-    for d in all_days:
-        v = rate_map.get(d, 0.0)
-        cls = "trend-bar jun" if v > 0 else "trend-bar empty"
-        tip = f' data-tip="{d[-5:]}: {v:.0f}%"' if v > 0 else ""
-        bars += f'<div class="{cls}" style="height:{v:.1f}%"{tip}></div>\n'
-    labels = ""
-    n = len(all_days)
-    for i, d in enumerate(all_days):
-        show = (i % 5 == 0) or (i == n - 1)
-        labels += f'<div class="trend-lbl">{d[-5:] if show else ""}</div>\n'
-    return f'<div class="trend trend-mini">{bars}</div><div class="trend-labels">{labels}</div>'
-
-
 def _sector_path(cx: float, cy: float, r: float, start_pct: float, end_pct: float) -> str:
     """生成饼图扇区 SVG path(从顶部起,顺时针;start/end_pct 为 0-100 占比)"""
     a1 = math.radians(start_pct / 100 * 360 - 90)
@@ -319,12 +297,14 @@ def build_pie(
     angle = 0.0
     sectors: list[str] = []
     legend = ""
-    for _, row in by_model.iterrows():
+    n_sectors = len(by_model)
+    for i, (_, row) in enumerate(by_model.iterrows()):
         m = row[COL_MODEL]
         c = MODEL_COLORS.get(m, "#94a3b8")
         name = MODEL_NAMES.get(m, m)
         pct = row[COL_COST] / total_pie * 100
-        nxt = angle + pct
+        # 末扇区强制闭合到 100%,消除浮点累积导致的缝隙
+        nxt = 100.0 if i == n_sectors - 1 else angle + pct
         mid_a = math.radians((angle + nxt) / 2 / 100 * 360 - 90)
         ex, ey = math.cos(mid_a) * 6, math.sin(mid_a) * 6
         sectors.append(
@@ -413,14 +393,15 @@ def build_pricing_rows(detail: pd.DataFrame) -> str:
 
 def build_cost_saving(
     theory_cost: float,
-    today: date,
+    window_start: str,
+    window_end: str,
     plan_df: pd.DataFrame,
 ) -> str:
-    """模块1：成本节省 —— 同期按量理论费用 vs 套餐按已用天数摊销。
+    """模块1:成本节省 —— 近30天窗口内 按量理论费用 vs 套餐摊销。
 
-    套餐为预付,按「已用天数/周期天数」摊销公允价值;季度=3日历月;
-    升级时旧套餐在新套餐生效日终止,剩余价值折算已计入新套餐公允价值。
-    对比口径为同期(最早订阅日 ~ 今天)。
+    与报告主体(近30天)口径一致:theory 与 amort 都限定在30天窗口。
+    套餐摊销 = 公允价值 × (套餐周期 ∩ 窗口)天数 / 周期总天数;
+    完全在窗口外的订阅(如已终止的旧套餐)不计入近30天成本。
     """
     # ── 按账号展开订阅,处理升级终止与摊销 ──
     by_acct: dict[str, list[dict]] = {}
@@ -435,13 +416,18 @@ def build_cost_saving(
     sub_rows_html = ""
     total_amort = 0.0
     total_paid = 0.0
+    win_start_d = date.fromisoformat(window_start)
+    win_end_d = date.fromisoformat(window_end)
     for acct in sorted(by_acct):
         subs = sorted(by_acct[acct], key=lambda s: s["start"])
         for i, s in enumerate(subs):
             # 升级终止:同账号下一条生效日早于到期则提前终止
             term = min(s["end"], subs[i + 1]["start"]) if i + 1 < len(subs) else s["end"]
-            used_days = max(0, (min(term, today) - s["start"]).days)
             total_days = (s["end"] - s["start"]).days
+            # 近30天窗口内已用 = 套餐周期 ∩ 窗口(升级终止用 term)
+            used_days = max(0, (min(term, win_end_d) - max(s["start"], win_start_d)).days)
+            if used_days <= 0:
+                continue  # 完全在窗口外(如已终止的旧套餐),不计入近30天成本
             amort = s["fair"] * used_days / total_days if total_days else 0.0
             progress = used_days / total_days * 100 if total_days else 0.0
             total_amort += amort
@@ -489,7 +475,7 @@ def build_cost_saving(
             <table><thead><tr><th>账号</th><th>套餐</th><th>周期</th><th>已用/总天数</th><th>进度</th><th>摊销成本</th><th>实付</th></tr></thead>
             <tbody>{sub_rows_html}</tbody></table>
         </div>
-        <div class="saving-note">口径:套餐为预付,摊销 = 公允价值 × 已用天数/周期天数;季度按 3 个日历月;升级折算已计入公允价值。实付合计 ¥{total_paid:.2f}(账单校验 ¥{plan_paid_sum:.2f}),对比口径为同期 [最早订阅 ~ {today}]。</div>
+        <div class="saving-note">口径:近30天窗口 [{window_start} ~ {window_end}],与报告主体一致。摊销 = 公允价值 × (套餐周期∩窗口)天数 / 周期总天数;窗口外已终止套餐(如账号A Pro·季)不计入。窗口内活跃订阅实付 ¥{total_paid:.2f}(账单全部实付 ¥{plan_paid_sum:.2f})。</div>
     </div>'''
 
 
@@ -498,8 +484,11 @@ def build_cache_saving(
     detail: pd.DataFrame,
     all_days: list[str],
 ) -> str:
-    """模块2：缓存节省 —— 缓存命中省了多少钱 + 各模型折扣 + 命中率趋势"""
-    # ── 各模型缓存节省 ──
+    """模块2：缓存节省 —— 加权均价口径(自动处理同模型多档单价) + 命中率趋势"""
+    # ── 各模型缓存节省(加权均价) ──
+    # 缓存节省 = 缓存用量 × 输入加权均价 − 缓存实际费用
+    # 加权均价 = 各档总费用 / 各档总量(元/token);避免旧版 iloc[0] 只取第一档单价,
+    # 同模型多上下文档时旧版节省偏差可达 10%+。
     rows_data: list[tuple] = []
     total_save = 0.0
     for m in detail[COL_MODEL].unique():
@@ -508,23 +497,29 @@ def build_cache_saving(
         ca_r = sub[sub[COL_PRICE_TYPE] == "缓存命中"]
         if in_r.empty or ca_r.empty:
             continue
-        p_in = float(in_r[COL_UNIT_PRICE].iloc[0])
-        p_ca = float(ca_r[COL_UNIT_PRICE].iloc[0])
-        q_ca = float(ca_r[COL_AMOUNT].iloc[0])
-        save = q_ca * (p_in - p_ca) / 1000
+        in_cost = float(in_r[COL_COST].sum())
+        in_qty = float(in_r[COL_AMOUNT].sum())
+        ca_cost = float(ca_r[COL_COST].sum())
+        ca_qty = float(ca_r[COL_AMOUNT].sum())
+        if in_qty <= 0 or ca_qty <= 0:
+            continue
+        in_avg = in_cost / in_qty            # 元/token(加权)
+        ca_avg = ca_cost / ca_qty
+        save = ca_qty * in_avg - ca_cost
+        disc = (1 - ca_avg / in_avg) * 100
         total_save += save
-        rows_data.append((m, p_in, p_ca, q_ca, save))
+        # 单价显示转 元/百万tokens
+        rows_data.append((m, in_avg * 1_000_000, ca_avg * 1_000_000, ca_qty, save, disc))
     rows_data.sort(key=lambda x: -x[4])
 
     cache_rows = ""
-    for m, p_in, p_ca, q_ca, save in rows_data:
+    for m, p_in, p_ca, q_ca, save, disc in rows_data:
         name = MODEL_NAMES.get(m, m)
         c = MODEL_COLORS.get(m, "#94a3b8")
-        disc = (1 - p_ca / p_in) * 100 if p_in > 0 else 0
         cache_rows += f'''<tr>
             <td><span class="model-tag" style="background:{c}20;color:{c}">{name}</span></td>
-            <td>{p_in * 1000:.2f}</td>
-            <td>{p_ca * 1000:.2f}</td>
+            <td>{p_in:.2f}</td>
+            <td>{p_ca:.2f}</td>
             <td><span class="hl-pos">-{disc:.0f}%</span></td>
             <td>{fmt_tok(q_ca)}</td>
             <td class="td-cost">¥{fmt(save)}</td>
@@ -545,47 +540,72 @@ def build_cache_saving(
 
 
 def build_model_efficiency(df: pd.DataFrame) -> str:
-    """模块3：模型性价比排行 —— 单次请求 token / 单次成本（请求去重）"""
-    # 同天同模型 输入/输出/缓存 三条请求次数相同，取 first 避免重复 3 倍
-    pdm = df.groupby([COL_DATE, COL_MODEL]).agg(
-        请求=(COL_REQUESTS, "first"), tokens=(COL_AMOUNT, "sum"), cost=(COL_COST, "sum"))
-    eff = pdm.groupby(COL_MODEL).sum()
-    eff["单次token"] = eff["tokens"] / eff["请求"]
-    eff["单次成本"] = eff["cost"] / eff["请求"]
-    eff = eff.sort_values("单次成本")
+    """模块3：模型性价比排行 —— 单次请求 token / 单次成本
+
+    请求次数取「同天同模型 输入行之和」:每次 API 调用必产生输入,且输入唯一落入
+    某个上下文长度档(如 GLM-5.1 的 [0,32K)/[32K+)),故输入请求次数之和 = 真实调用数。
+    旧版 groupby+first 只取到某档请求次数,严重低估(实测偏低约 2 倍,单次成本虚高)。
+    """
+    # 请求:输入行之和;tokens/cost:全价格类型之和
+    req = (df[df[COL_PRICE_TYPE] == "输入"]
+           .groupby([COL_DATE, COL_MODEL])[COL_REQUESTS].sum())
+    tok_cost = df.groupby([COL_DATE, COL_MODEL]).agg(
+        tokens=(COL_AMOUNT, "sum"), cost=(COL_COST, "sum"))
+    eff = tok_cost.join(req.rename("请求"), how="left").fillna(0)
+    eff = eff.groupby(COL_MODEL).sum()
+    eff_req = eff["请求"]
+    safe_req = eff_req.replace(0, float("nan"))
+    eff["单次token"] = eff["tokens"] / safe_req
+    eff["单次成本"] = eff["cost"] / safe_req
+    eff = eff.sort_values("单次成本", na_position="last")
 
     rows = ""
     for m, r in eff.iterrows():
         name = MODEL_NAMES.get(m, m)
         c = MODEL_COLORS.get(m, "#94a3b8")
+        has_req = r["请求"] > 0
+        tok_per = fmt_tok(r["单次token"]) if has_req else "—"
+        cost_per = f"¥{r['单次成本']:.3f}" if has_req else "—"
         rows += f'''<tr>
             <td><span class="model-tag" style="background:{c}20;color:{c}">{name}</span></td>
             <td class="td-cost">¥{fmt(r['cost'])}</td>
             <td>{fmt_tok(r['tokens'])}</td>
-            <td>{fmt_tok(r['单次token'])}</td>
-            <td class="td-cost">¥{r['单次成本']:.3f}</td>
+            <td>{tok_per}</td>
+            <td class="td-cost">{cost_per}</td>
         </tr>'''
     return rows
 
 
-def build_monthly_compare(usage_full: pd.DataFrame) -> str:
-    """模块4：月度环比 —— 最近两个月 日均(费用/token/请求)对比,消除当月未满的天数差异"""
-    pdm = usage_full.groupby([COL_DATE, COL_MODEL]).agg(
-        请求=(COL_REQUESTS, "first"), tokens=(COL_AMOUNT, "sum"), cost=(COL_COST, "sum")).reset_index()
-    pdm["月份"] = pdm[COL_DATE].str[:7]
-    monthly = pdm.groupby("月份").agg(
-        费用=("cost", "sum"), tokens=("tokens", "sum"), 请求=("请求", "sum"),
-        天数=(COL_DATE, "nunique"))
-    months = sorted(monthly.index.tolist())
-    if len(months) < 2:
-        return ""
-    prev_m, cur_m = months[-2], months[-1]
-    p, c = monthly.loc[prev_m], monthly.loc[cur_m]
-    # 日均 = 总量 / 有数据天数(消除当月未满的天数差异,公平环比)
+def build_biweekly_compare(
+    df: pd.DataFrame, window_start: str, window_end: str
+) -> str:
+    """模块4:双周环比 —— 近两周 vs 前两周(都在30天窗口内,完整周期公平对比)。
+
+    报告主体为近30天,旧版月度环比会跨月并用到窗口外数据、且当月进行中不公平;
+    改为双周(各14天)环比,完全落在窗口内且周期等长。
+    """
+    we = date.fromisoformat(window_end)
+    this_start = (we - timedelta(days=13)).isoformat()   # 近14天 [we-13, we]
+    prev_start = (we - timedelta(days=27)).isoformat()   # 前14天 [we-27, we-14]
+    prev_end = (we - timedelta(days=14)).isoformat()
+
+    def agg(sub: pd.DataFrame) -> dict:
+        if sub.empty:
+            return {"费用": 0.0, "tokens": 0.0, "请求": 0, "天数": 0}
+        return {
+            "费用": float(sub[COL_COST].sum()),
+            "tokens": float(sub[COL_AMOUNT].sum()),
+            "请求": int(sub.loc[sub[COL_PRICE_TYPE] == "输入", COL_REQUESTS].sum()),
+            "天数": int(sub[COL_DATE].nunique()),
+        }
+
+    p = agg(df[df[COL_DATE].between(prev_start, prev_end)])
+    c = agg(df[df[COL_DATE].between(this_start, window_end)])
+    if p["天数"] == 0 or c["天数"] == 0:
+        return ""   # 某段无数据,无法环比
+
     def daily(row, col):
         return row[col] / row["天数"] if row["天数"] else 0.0
-    pv = {k: daily(p, k) for k in ("费用", "tokens", "请求")}
-    cv = {k: daily(c, k) for k in ("费用", "tokens", "请求")}
 
     def growth(pv_: float, cv_: float) -> float:
         return ((cv_ - pv_) / pv_ * 100) if pv_ else 0.0
@@ -596,17 +616,19 @@ def build_monthly_compare(usage_full: pd.DataFrame) -> str:
         arrow, cls = ("↑", "hl-pos") if up else ("↓", "hl-neg")
         return f'''<div class="cmp-card">
             <div class="cmp-label">{label} · 日均</div>
-            <div class="cmp-from">{fmt_fn(pval)} <span class="cmp-mono">{prev_m}·{int(p["天数"])}天</span></div>
+            <div class="cmp-from">{fmt_fn(pval)} <span class="cmp-mono">{prev_start[-5:]}~{prev_end[-5:]}·{p["天数"]}天</span></div>
             <div class="cmp-arrow {cls}">{arrow} {abs(g):.0f}%</div>
-            <div class="cmp-to">{fmt_fn(cval)} <span class="cmp-mono">{cur_m}·{int(c["天数"])}天</span></div>
+            <div class="cmp-to">{fmt_fn(cval)} <span class="cmp-mono">{this_start[-5:]}~{window_end[-5:]}·{c["天数"]}天</span></div>
         </div>'''
 
+    pv = {k: daily(p, k) for k in ("费用", "tokens", "请求")}
+    cv = {k: daily(c, k) for k in ("费用", "tokens", "请求")}
     cards = "".join([
         card("费用", pv["费用"], cv["费用"], lambda x: f"¥{fmt(x)}/天"),
         card("Token", pv["tokens"], cv["tokens"], lambda x: fmt_tok(x) + "/天"),
-        card("请求", pv["请求"], cv["请求"], lambda x: f"{int(x):,}/天"),
+        card("请求", pv["请求"], cv["请求"], lambda x: f"{round(x):,}/天"),
     ])
-    return f'''<div class="section-title reveal">📅 月度环比 · {prev_m} → {cur_m}（日均,当月进行中）</div>
+    return f'''<div class="section-title reveal">📅 双周环比（近两周 vs 前两周,日均）</div>
     <div class="cmp-grid reveal">{cards}</div>'''
 
 
@@ -619,10 +641,14 @@ def build_report(usage_full: pd.DataFrame, plan_df: pd.DataFrame) -> str:
     window_end = (now_cn - timedelta(days=1)).strftime("%Y-%m-%d")
     window_start = (now_cn - timedelta(days=30)).strftime("%Y-%m-%d")
     df = usage_full[usage_full[COL_DATE].between(window_start, window_end)].copy()
+    if df.empty and not usage_full.empty:
+        # 近30天窗口内无数据(数据已超出窗口,如一个月后再跑) → 回退到全量,避免空报告崩溃
+        df = usage_full.copy()
+        window_start = df[COL_DATE].min()
+        window_end = df[COL_DATE].max()
 
     # ── 全局汇总（窗口内用量）──
     total_cost = df[COL_COST].sum()
-    total_paid = df[COL_PAID].sum()
 
     input_mask = df[COL_PRICE_TYPE] == "输入"
     output_mask = df[COL_PRICE_TYPE] == "输出"
@@ -635,27 +661,41 @@ def build_report(usage_full: pd.DataFrame, plan_df: pd.DataFrame) -> str:
     output_cost = df.loc[output_mask, COL_COST].sum()
     cache_cost = df.loc[cache_mask, COL_COST].sum()
 
-    total_reqs = df[COL_REQUESTS].sum()
+    # 请求次数按输入行去重(=真实 API 调用数)
+    total_reqs = int(df.loc[df[COL_PRICE_TYPE] == "输入", COL_REQUESTS].sum())
     dates = sorted(df[COL_DATE].unique())
     n_days = len(dates)
     n_models = df[COL_MODEL].nunique()
     n_accounts = df[COL_CUSTOMER].nunique() if COL_CUSTOMER in df.columns else 1
     avg_daily = total_cost / n_days if n_days > 0 else 0
-    avg_daily_tok = (total_input + total_output + total_cache) / n_days if n_days > 0 else 0
 
-    # ── 按模型汇总 ──
+    # ── 按模型汇总(请求按输入行去重,避免输入/输出/缓存三行重复 3 倍) ──
     by_model = (df.groupby(COL_MODEL)
-        .agg({COL_COST: "sum", COL_AMOUNT: "sum", COL_REQUESTS: "sum"})
+        .agg({COL_COST: "sum", COL_AMOUNT: "sum"})
         .sort_values(COL_COST, ascending=False).reset_index())
+    _req_by_model = df[df[COL_PRICE_TYPE] == "输入"].groupby(COL_MODEL)[COL_REQUESTS].sum()
+    by_model[COL_REQUESTS] = by_model[COL_MODEL].map(_req_by_model).fillna(0).astype(int)
+    # 占比 <10% 的模型合并为"其它"(饼图扇区过多时不清晰)
+    if total_cost > 0 and len(by_model) > 1:
+        _pct = by_model[COL_COST] / total_cost
+        _small = by_model[_pct < 0.10]
+        if not _small.empty:
+            _other = pd.DataFrame([{
+                COL_MODEL: "其它", COL_COST: _small[COL_COST].sum(),
+                COL_AMOUNT: _small[COL_AMOUNT].sum(),
+                COL_REQUESTS: int(_small[COL_REQUESTS].sum()),
+            }])
+            by_model = pd.concat([by_model[_pct >= 0.10], _other], ignore_index=True)
 
-    # ── 按日期汇总 ──
+    # ── 按日期汇总(请求按输入行去重) ──
     by_date = (df.groupby(COL_DATE)
-        .agg({COL_COST: "sum", COL_AMOUNT: "sum", COL_REQUESTS: "sum"})
-        .sort_index().reset_index())
+        .agg({COL_COST: "sum", COL_AMOUNT: "sum"}).sort_index().reset_index())
+    _req_by_date = df[df[COL_PRICE_TYPE] == "输入"].groupby(COL_DATE)[COL_REQUESTS].sum()
+    by_date[COL_REQUESTS] = by_date[COL_DATE].map(_req_by_date).fillna(0).astype(int)
 
-    # ── 模型×价格类型 ──
-    detail = (df.groupby([COL_MODEL, COL_PRICE_TYPE])
-        .agg({COL_AMOUNT: "sum", COL_UNIT_PRICE: "first", COL_COST: "sum", COL_REQUESTS: "sum"})
+    # ── 模型×价格类型×单价档(同模型多上下文档各自成行,单价准确) ──
+    detail = (df.groupby([COL_MODEL, COL_PRICE_TYPE, COL_UNIT_PRICE])
+        .agg({COL_AMOUNT: "sum", COL_COST: "sum", COL_REQUESTS: "sum"})
         .reset_index())
 
     # ── 月份列表 ──
@@ -677,7 +717,6 @@ def build_report(usage_full: pd.DataFrame, plan_df: pd.DataFrame) -> str:
     max_daily_val = by_date_30[COL_COST].max() if len(by_date_30) > 0 else 1
     cache_rate = total_cache / (total_input + total_cache) * 100 if (total_input + total_cache) > 0 else 0
     io_ratio = total_input / total_output if total_output > 0 else 0
-    cache_ring_offset = PIE_SVG_CIRCUMFERENCE * (1 - cache_rate / 100)
 
     bar_html = build_trend_30d(by_date_30, max_daily_val, months)
     hero_spark = build_sparkline(by_date_30[COL_COST].tolist())
@@ -692,14 +731,13 @@ def build_report(usage_full: pd.DataFrame, plan_df: pd.DataFrame) -> str:
     date_rows = build_date_rows(df, by_date, months, max_daily_val)
     pricing_rows = build_pricing_rows(detail)
 
-    month_labels = ", ".join(sorted(df["月份标签"].unique()))
-
     # ── 新增模块 ──
-    theory_cost_full = usage_full[COL_COST].sum()
-    cost_saving_html = build_cost_saving(theory_cost_full, now_cn.date(), plan_df)
+    # 口径:近30天窗口(theory 与 amort 都限定窗口,与报告主体一致)
+    theory_cost_full = df[COL_COST].sum()
+    cost_saving_html = build_cost_saving(theory_cost_full, window_start, window_end, plan_df)
     cache_saving_html = build_cache_saving(df, detail, all_30_days)
     model_efficiency_rows = build_model_efficiency(df)
-    monthly_compare_html = build_monthly_compare(usage_full)
+    monthly_compare_html = build_biweekly_compare(df, window_start, window_end)
 
     # ── 加载模板并渲染 ──
     css = STYLE_FILE.read_text(encoding="utf-8")
@@ -709,34 +747,22 @@ def build_report(usage_full: pd.DataFrame, plan_df: pd.DataFrame) -> str:
     # 新增派生量(占位符参数)
     cache_cost_share = f"{cache_cost / total_cost * 100:.0f}%" if total_cost > 0 else "0%"
     io_total_tok = fmt_tok(total_input + total_output)
-    avg_daily_reqs = f"{total_reqs // n_days:,}" if n_days > 0 else "0"
+    avg_daily_reqs = f"{round(total_reqs / n_days):,}" if n_days > 0 else "0"
 
     return render(template,
         css=css,
-        month_labels=month_labels,
-        date_start=dates[0],
-        date_end=dates[-1],
         n_days=n_days,
         n_models=n_models,
-        n_months=len(months),
         n_accounts=n_accounts,
         window_start=window_start,
         window_end=window_end,
         cache_cost_share=cache_cost_share,
         io_total_tok=io_total_tok,
         avg_daily_reqs=avg_daily_reqs,
-        input_cost=fmt(input_cost) + "元",
         input_cost_raw=input_cost,
-        total_input_tok=fmt_tok(total_input),
-        output_cost=fmt(output_cost) + "元",
         output_cost_raw=output_cost,
-        total_output_tok=fmt_tok(total_output),
-        cache_cost=fmt(cache_cost) + "元",
         cache_cost_raw=cache_cost,
-        total_cache_tok=fmt_tok(total_cache),
-        total_cost=fmt(total_cost) + "元",
         total_cost_raw=total_cost,
-        avg_daily=fmt(avg_daily),
         avg_daily_raw=avg_daily,
         total_reqs=f"{total_reqs:,}",
         bar_html=bar_html,
@@ -749,9 +775,7 @@ def build_report(usage_full: pd.DataFrame, plan_df: pd.DataFrame) -> str:
         pie_legend=pie_legend,
         date_rows=date_rows,
         pricing_rows=pricing_rows,
-        avg_daily_tok=fmt_tok(avg_daily_tok),
         cache_rate=f"{cache_rate:.1f}%",
-        cache_ring_offset=f"{cache_ring_offset:.1f}",
         io_ratio=f"{io_ratio:.1f}:1",
         gen_time=gen_time,
         cost_saving_html=cost_saving_html,
@@ -777,6 +801,11 @@ def main() -> None:
 
     print(f"✓ 找到 {len(files)} 个账单文件:")
     usage_df, plan_df = load_all(files)
+
+    if usage_df.empty:
+        print("❌ 未在账单中找到任何 GLM Coding 用量数据")
+        print("   (账单可能只含套餐行,或资源包名称不含 'GLM Coding')")
+        sys.exit(1)
 
     total = usage_df[COL_COST].sum()
     paid = plan_df[COL_PAID].sum() if not plan_df.empty else 0.0
