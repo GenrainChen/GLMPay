@@ -1,0 +1,42 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# ===== 敏感数据: 智谱AI 开放平台费用明细(含真实账户费用,切勿提交) =====
+*.xlsx
+# 生成的账单报告(由 analyze_bill.py 从 xlsx 产出,含真实数据)
+bill_report.html
+
+# ===== 工具本地状态 =====
+.claude/
+.playwright-mcp/
+
+# ===== IDE / 编辑器 =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 日志 / 临时文件 =====
+*.log
+*.tmp
+*.bak

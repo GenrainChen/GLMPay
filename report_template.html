@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智谱AI 费用分析报告 · 近 30 天</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>{{css}}</style>
+</head>
+<body>
+<div class="fx-noise" aria-hidden="true"></div>
+<div class="radar-scan" aria-hidden="true"></div>
+<div class="container">
+
+    <!-- 顶栏 -->
+    <header class="header reveal">
+        <div>
+            <div class="eyebrow">智谱AI · 费用分析</div>
+            <h1>近 30 天费用报告</h1>
+            <div class="window">滚动窗口 · <b>{{window_start}} ~ {{window_end}}</b> · 排除今日</div>
+        </div>
+        <div class="meta">
+            <div class="status"><span class="live-dot" aria-hidden="true"></span>LIVE · 实时同步 · <span class="live-time">--:--:--</span></div>
+            <div>{{n_days}} 天 · {{n_models}} 个模型</div>
+            <div><span class="acc">{{n_accounts}} 个账号合并</span> · {{total_reqs}} 次请求</div>
+        </div>
+    </header>
+
+    <!-- KPI 行 -->
+    <div class="kpi-grid reveal">
+        <div class="kpi hero">
+            <div class="label">理论总费用</div>
+            <div class="value"><span class="grad counter" data-target="{{total_cost_raw}}" data-decimals="2">0.00</span><span class="frac">元</span></div>
+            <div class="sub">日均 <span class="hl counter" data-target="{{avg_daily_raw}}" data-decimals="2">0.00</span> 元 · {{n_days}} 天合计</div>
+            <div class="kpi-spark">{{hero_spark}}</div>
+        </div>
+        <div class="kpi">
+            <div class="label">缓存命中</div>
+            <div class="value">¥<span class="counter" data-target="{{cache_cost_raw}}" data-decimals="2">0.00</span></div>
+            <div class="sub">占 {{cache_cost_share}} · 命中率 <span class="hl">{{cache_rate}}</span></div>
+            <div class="kpi-spark">{{cache_spark}}</div>
+        </div>
+        <div class="kpi">
+            <div class="label">输入 / 输出</div>
+            <div class="value">¥<span class="counter" data-target="{{input_cost_raw}}" data-decimals="2">0.00</span> <span class="slash">/</span> <span style="color:var(--text-2)">¥<span class="counter" data-target="{{output_cost_raw}}" data-decimals="2">0.00</span></span></div>
+            <div class="sub">{{io_total_tok}} tokens · IO 比 {{io_ratio}}</div>
+            <div class="kpi-spark">{{io_spark}}</div>
+        </div>
+        <div class="kpi">
+            <div class="label">请求次数</div>
+            <div class="value counter" data-target="{{total_reqs}}" data-decimals="0">0</div>
+            <div class="sub">日均 {{avg_daily_reqs}} 次</div>
+            <div class="kpi-spark">{{req_spark}}</div>
+        </div>
+    </div>
+
+    <!-- 成本节省(全周期) -->
+    {{cost_saving_html}}
+
+    <!-- 月度环比 -->
+    {{monthly_compare_html}}
+
+    <!-- 图表行:趋势 + 占比 -->
+    <div class="charts reveal">
+        <div class="panel">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <div class="title" style="margin:0">每日费用趋势(近 30 日)</div>
+                <div class="legend-inline"><span><i style="background:#3a4250"></i>5月</span><span><i style="background:linear-gradient(180deg,#3df5c4,#5cc8ff)"></i>6月</span></div>
+            </div>
+            {{bar_html}}
+        </div>
+        <div class="panel">
+            <div class="title">模型费用占比</div>
+            <div class="pie-container"><div class="pie-outer">
+                <div class="pie">{{pie_grad}}<div class="pie-center"><div class="pie-total">{{total_cost_fmt}}</div><div class="pie-unit">CNY · 30天</div></div></div>
+            </div></div>
+            <div class="legend">{{pie_legend}}</div>
+        </div>
+    </div>
+
+    <!-- 缓存节省 -->
+    {{cache_saving_html}}
+
+    <!-- 每日费用明细 -->
+    <div class="section-title reveal">📅 每日费用明细</div>
+    <div class="table-card reveal">
+        <div class="scroll-wrap"><table><thead><tr><th>日期</th><th>费用</th><th>Token 用量</th><th>请求数</th><th>占比</th></tr></thead><tbody>{{date_rows}}</tbody></table></div>
+    </div>
+
+    <!-- 模型费用明细 -->
+    <div class="section-title reveal">🤖 模型费用明细</div>
+    <div class="table-card reveal">
+        <div class="scroll-wrap"><table><thead><tr><th>模型</th><th>类型</th><th>用量</th><th>单价(百万tokens)</th><th>费用</th></tr></thead><tbody>{{pricing_rows}}</tbody></table></div>
+    </div>
+
+    <!-- 模型性价比排行 -->
+    <div class="section-title reveal">🏆 模型性价比排行（近 30 天）</div>
+    <div class="table-card reveal">
+        <div class="scroll-wrap"><table><thead><tr><th>模型</th><th>总费用</th><th>总Token</th><th>单次请求Token</th><th>单次成本</th></tr></thead><tbody>{{model_efficiency_rows}}</tbody></table></div>
+    </div>
+
+    <div class="footer"><span class="footer-accent">智谱AI</span> 开放平台 · 近 30 天滚动窗口 · {{window_start}} ~ {{window_end}} · {{gen_time}}</div>
+
+</div>
+
+<script>
+(function(){
+"use strict";
+var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function fmtNum(n, d){
+    var s = (n).toFixed(d).split('.');
+    s[0] = s[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return s.join('.');
+}
+function runCounter(el){
+    var t = parseFloat(el.dataset.target.replace(/,/g, ''));
+    if(isNaN(t)) return;
+    var d = parseInt(el.dataset.decimals || '2', 10);
+    if(reduce){ el.textContent = fmtNum(t, d); return; }
+    var dur = 1200, st = null;
+    function step(ts){
+        if(!st) st = ts;
+        var p = Math.min((ts - st) / dur, 1), e = 1 - Math.pow(1 - p, 3);
+        el.textContent = fmtNum(t * e, d);
+        if(p < 1) requestAnimationFrame(step);   /* 单次,结束即停 */
+    }
+    requestAnimationFrame(step);
+}
+function runCounters(){
+    document.querySelectorAll('.counter').forEach(function(el){
+        if(reduce){ runCounter(el); return; }
+        setTimeout(function(){ runCounter(el); }, 160);
+    });
+}
+
+/* 趋势柱 stagger:按索引设 animation-delay,reveal 触发时即可错落生长 */
+function setStagger(){
+    if(reduce) return;
+    document.querySelectorAll('.trend').forEach(function(t){
+        t.querySelectorAll('.trend-bar').forEach(function(b, i){
+            b.style.animationDelay = (i * 16) + 'ms';
+        });
+    });
+}
+
+function initReveal(){
+    var els = document.querySelectorAll('.reveal');
+    if(reduce){
+        els.forEach(function(el){ el.classList.add('revealed'); });
+        return;
+    }
+    var io = new IntersectionObserver(function(entries){
+        entries.forEach(function(e){
+            if(e.isIntersecting){ e.target.classList.add('revealed'); io.unobserve(e.target); }
+        });
+    }, {threshold: 0.08, rootMargin: '0px 0px -30px 0px'});
+    els.forEach(function(el){ io.observe(el); });
+}
+
+/* 饼图扇区 ↔ 图例联动:hover/focus 图例项或扇区 → 对应扇区高亮、其余变暗(按 data-name 关联,鼠标+键盘) */
+function initPieLegendLink(){
+    var secByName = {}, liByName = {};
+    document.querySelectorAll('.pie-sector').forEach(function(s){
+        secByName[s.getAttribute('data-name')] = s;
+        s.setAttribute('tabindex','0');
+        s.setAttribute('role','button');
+    });
+    document.querySelectorAll('.legend-item').forEach(function(li){
+        liByName[li.getAttribute('data-name')] = li;
+        li.setAttribute('tabindex','0');
+        li.setAttribute('role','button');
+    });
+    function highlight(name){
+        document.querySelectorAll('.pie-sector').forEach(function(s){
+            if(s.getAttribute('data-name') === name){ s.classList.add('hl'); }
+            else { s.classList.add('dim'); }
+        });
+        document.querySelectorAll('.legend-item').forEach(function(li){
+            li.classList.toggle('hl', li.getAttribute('data-name') === name);
+        });
+    }
+    function clear(){
+        document.querySelectorAll('.pie-sector').forEach(function(s){ s.classList.remove('hl','dim'); });
+        document.querySelectorAll('.legend-item').forEach(function(li){ li.classList.remove('hl'); });
+    }
+    Object.keys(liByName).forEach(function(name){
+        var li = liByName[name];
+        li.addEventListener('mouseenter', function(){ highlight(name); });
+        li.addEventListener('mouseleave', clear);
+        li.addEventListener('focus', function(){ highlight(name); });
+        li.addEventListener('blur', clear);
+    });
+    Object.keys(secByName).forEach(function(name){
+        var sec = secByName[name];
+        sec.addEventListener('mouseenter', function(){ highlight(name); });
+        sec.addEventListener('mouseleave', clear);
+        sec.addEventListener('focus', function(){ highlight(name); });
+        sec.addEventListener('blur', clear);
+    });
+}
+
+/* 饼图中心读数响应扇区:hover/focus/锁定 时中心显示该扇区费用+占比(数字刷新闪烁),否则恢复总额 */
+function initPieCenterSync(){
+    var totalEl=document.querySelector('.pie-total');
+    var unitEl=document.querySelector('.pie-unit');
+    if(!totalEl||!unitEl) return;
+    var origTotal=totalEl.textContent;
+    var origUnit=unitEl.textContent;
+    function esc(name){return window.CSS&&CSS.escape?CSS.escape(name):name;}
+    function flash(el){el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');}
+    function show(name){
+        var sec=document.querySelector('.pie-sector[data-name="'+esc(name)+'"]');
+        if(!sec) return;
+        totalEl.textContent=sec.getAttribute('data-cost');
+        unitEl.textContent=sec.getAttribute('data-pct')+'% · '+name;
+        flash(totalEl);flash(unitEl);
+    }
+    function current(){
+        var locked=document.querySelector('.pie-sector.locked');
+        if(locked) show(locked.getAttribute('data-name'));
+        else {totalEl.textContent=origTotal;unitEl.textContent=origUnit;flash(totalEl);flash(unitEl);}
+    }
+    document.querySelectorAll('.pie-sector').forEach(function(sec){
+        var name=sec.getAttribute('data-name');
+        sec.addEventListener('mouseenter',function(){show(name);});
+        sec.addEventListener('mouseleave',current);
+        sec.addEventListener('focus',function(){show(name);});
+        sec.addEventListener('blur',current);
+        sec.addEventListener('click',function(){setTimeout(current,0);});
+    });
+    document.querySelectorAll('.legend-item').forEach(function(li){
+        var name=li.getAttribute('data-name');
+        li.addEventListener('mouseenter',function(){show(name);});
+        li.addEventListener('mouseleave',current);
+        li.addEventListener('focus',function(){show(name);});
+        li.addEventListener('blur',current);
+    });
+}
+
+/* 自定义科技光标:隐藏默认,核心点 + 延迟外圈,hover 交互元素放大(触屏/reduced-motion 自动禁用) */
+function initCursor(){
+    if(reduce) return;
+    if(window.matchMedia('(hover: none)').matches) return;
+    var dot=document.createElement('div');dot.className='cur-dot';
+    var ring=document.createElement('div');ring.className='cur-ring';
+    document.body.appendChild(dot);document.body.appendChild(ring);
+    document.body.classList.add('custom-cursor');
+    var mx=window.innerWidth/2,my=window.innerHeight/2,rx=mx,ry=my,raf=null;
+    function setDot(){dot.style.transform='translate('+mx+'px,'+my+'px)';}
+    function setRing(){ring.style.transform='translate('+rx+'px,'+ry+'px)';}
+    setDot();setRing();
+    function loop(){
+        rx+=(mx-rx)*0.2;ry+=(my-ry)*0.2;setRing();
+        if(Math.abs(mx-rx)>0.4||Math.abs(my-ry)>0.4){raf=requestAnimationFrame(loop);}else{raf=null;}
+    }
+    window.addEventListener('mousemove',function(e){mx=e.clientX;my=e.clientY;setDot();if(!raf)raf=requestAnimationFrame(loop);});
+    document.querySelectorAll('.pie-sector,.legend-item,.kpi,.cmp-card,.trend-bar:not(.empty),.saving-cell,.section-title').forEach(function(el){
+        el.addEventListener('mouseenter',function(){ring.classList.add('hover');});
+        el.addEventListener('mouseleave',function(){ring.classList.remove('hover');});
+    });
+    document.addEventListener('mouseleave',function(){dot.style.opacity='0';ring.style.opacity='0';});
+    document.addEventListener('mouseenter',function(){dot.style.opacity='1';ring.style.opacity='1';});
+}
+
+/* 飘浮粒子(数据尘埃/星空感,JS 生成随机位置/大小/时序,reduced-motion 禁用) */
+function initParticles(){
+    if(reduce) return;
+    var c=document.createElement('div');c.className='fx-particles';
+    for(var i=0;i<12;i++){
+        var p=document.createElement('span');
+        var sz=1+Math.random()*2.5;
+        p.style.left=(Math.random()*100)+'%';
+        p.style.top=(58+Math.random()*42)+'%';
+        p.style.width=sz+'px';p.style.height=sz+'px';
+        p.style.animationDelay=(Math.random()*12)+'s';
+        p.style.animationDuration=(9+Math.random()*11)+'s';
+        c.appendChild(p);
+    }
+    document.body.appendChild(c);
+}
+
+/* 卡片 spotlight:鼠标跟随柔光,rAF 节流 + GPU transform 零卡顿(触屏/reduced-motion 禁用) */
+function initSpotlight(){
+    if(reduce) return;
+    if(window.matchMedia('(hover: none)').matches) return;
+    document.querySelectorAll('.kpi,.panel,.cmp-card').forEach(function(card){
+        var spot=document.createElement('i');spot.className='spot';
+        card.insertBefore(spot,card.firstChild);
+        var nx=-300,ny=-300,dirty=false;
+        card.addEventListener('mousemove',function(e){
+            var r=card.getBoundingClientRect();
+            nx=e.clientX-r.left;ny=e.clientY-r.top;
+            if(!dirty){dirty=true;requestAnimationFrame(function(){
+                spot.style.setProperty('--mx',nx+'px');
+                spot.style.setProperty('--my',ny+'px');
+                dirty=false;
+            });}
+        });
+    });
+}
+
+/* 趋势图 hover 垂直扫描线(示波器感,rAF 节流 + GPU transform 零卡顿,触屏/reduced-motion 禁用) */
+function initTrendScan(){
+    if(reduce) return;
+    if(window.matchMedia('(hover: none)').matches) return;
+    document.querySelectorAll('.trend').forEach(function(t){
+        var nx=-999,dirty=false;
+        t.addEventListener('mousemove',function(e){
+            var r=t.getBoundingClientRect();
+            nx=e.clientX-r.left;
+            if(!dirty){dirty=true;requestAnimationFrame(function(){t.style.setProperty('--scan-x',nx+'px');dirty=false;});}
+        });
+    });
+}
+
+/* 趋势柱点击锁定:点击高亮+其余变暗+持久tooltip,再点取消(数据探索) */
+function initTrendClick(){
+    document.querySelectorAll('.trend-bar:not(.empty)').forEach(function(bar){
+        bar.addEventListener('click',function(){
+            var trend=bar.closest('.trend');
+            var wasLocked=bar.classList.contains('locked');
+            trend.querySelectorAll('.trend-bar.locked').forEach(function(b){b.classList.remove('locked');});
+            if(!wasLocked) bar.classList.add('locked');
+        });
+    });
+}
+
+/* 饼图扇区 click 锁定:持久高亮+其余变暗+联动 legend 详情,再点取消 */
+function initPieClick(){
+    document.querySelectorAll('.pie-sector').forEach(function(sec){
+        sec.addEventListener('click',function(){
+            var name=sec.getAttribute('data-name');
+            var wasLocked=sec.classList.contains('locked');
+            document.querySelectorAll('.pie-sector.locked').forEach(function(s){s.classList.remove('locked');});
+            document.querySelectorAll('.legend-item.hl-click').forEach(function(l){l.classList.remove('hl-click');});
+            if(!wasLocked){
+                sec.classList.add('locked');
+                var li=document.querySelector('.legend-item[data-name="'+(window.CSS&&CSS.escape?CSS.escape(name):name)+'"]');
+                if(li) li.classList.add('hl-click');
+            }
+        });
+    });
+}
+
+/* 表格行 click 锁定:点击高亮+其余变暗+accent 常亮,再点取消(对称趋势柱 v16/饼图 v17) */
+function initRowClick(){
+    document.querySelectorAll('.table-card tbody tr').forEach(function(tr){
+        tr.addEventListener('click',function(){
+            var card=tr.closest('.table-card');
+            var wasLocked=tr.classList.contains('locked');
+            card.querySelectorAll('tbody tr.locked').forEach(function(r){r.classList.remove('locked');});
+            if(!wasLocked) tr.classList.add('locked');
+        });
+    });
+}
+
+/* 实时时钟(header LIVE 区每秒更新,强化实时监控主题) */
+function initClock(){
+    var el=document.querySelector('.live-time');
+    if(!el) return;
+    function pad(n){return n<10?'0'+n:''+n;}
+    function tick(){
+        var d=new Date();
+        el.textContent=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+    }
+    tick();
+    setInterval(tick,1000);
+}
+
+/* 滚动进度条(顶部青绿渐变条,scroll + rAF 节流更新 width) */
+function initScrollProgress(){
+    var bar=document.createElement('div');bar.className='scroll-progress';
+    document.body.appendChild(bar);
+    var updating=false;
+    function update(){
+        var h=document.documentElement.scrollHeight-window.innerHeight;
+        var p=h>0?(window.scrollY/h*100):0;
+        bar.style.width=Math.min(100,Math.max(0,p))+'%';
+    }
+    update();
+    window.addEventListener('scroll',function(){
+        if(updating) return;
+        updating=true;
+        requestAnimationFrame(function(){update();updating=false;});
+    },{passive:true});
+}
+
+/* 页面四角 HUD 装饰角标(赛博朋克终端边框感) */
+function initHudCorners(){
+    ['tl','tr','bl','br'].forEach(function(p){
+        var c=document.createElement('div');c.className='hud-corner '+p;
+        document.body.appendChild(c);
+    });
+}
+
+setStagger();
+initReveal();
+runCounters();
+initPieLegendLink();
+initPieCenterSync();
+initCursor();
+initSpotlight();
+initTrendScan();
+initParticles();
+initTrendClick();
+initPieClick();
+initRowClick();
+initClock();
+initScrollProgress();
+initHudCorners();
+})();
+</script>
+</body>
+</html>
