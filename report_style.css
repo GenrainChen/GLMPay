@@ -4,15 +4,13 @@
    全部静态发光(零开销) + 一次性动效(零卡顿)
    ════════════════════════════════════════════════════════════ */
 :root{
-  --bg:#040508; --bg-2:#06080e;
+  --bg:#040508;
   --surface:#090b11; --surface-2:#0b0e16; --panel:#070910;
   --border:#121722; --border-strong:#1c2636; --border-glow:#2c4659;
   --text:#eaf3f7; --text-2:#8a9aac; --text-3:#5a6776; --text-4:#394350;
-  --accent-1:#3df5c4; --accent-2:#5cc8ff; --gold:#f5c451;
-  --glow:#3df5c4; --cyan:#5cc8ff; --purple:#8b7dff;
-  --pos:#3df5c4; --neg:#ff5d6c; --warn:#f5c451;
+  --accent-1:#3df5c4; --accent-2:#5cc8ff;
+  --pos:#3df5c4; --neg:#ff5d6c;
   --grad:linear-gradient(96deg,#3df5c4 0%,#5cc8ff 100%);
-  --grad-soft:linear-gradient(96deg,rgba(61,245,196,.16),rgba(92,200,255,.16));
   /* —— 发光色(v3 上调,静态使用零开销) —— */
   --g1:rgba(61,245,196,.8);
   --g2:rgba(92,200,255,.74);
