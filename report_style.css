@@ -367,6 +367,7 @@ body .fx-noise{
 .saving-bar::before{top:9px;left:9px;border-top:1.5px solid;border-left:1.5px solid}
 .saving-bar::after{bottom:9px;right:9px;border-bottom:1.5px solid;border-right:1.5px solid}
 .saving-cell{display:flex;flex-direction:column;gap:6px;text-align:center;align-items:center}
+.saving-win{position:relative;padding:8px 20px;border:1px solid var(--g1);border-radius:10px;box-shadow:0 0 22px -6px var(--g1),inset 0 0 12px -4px var(--g1)}
 .saving-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.16em;color:var(--text-3);
   text-transform:uppercase;font-weight:500}
 .saving-val{font-family:var(--font-display);font-size:26px;font-weight:700;color:var(--text);letter-spacing:-.005em;line-height:1}
@@ -413,7 +414,6 @@ body .fx-noise{
 .cmp-from{font-family:var(--font-mono);font-size:13px;color:var(--text-4)}
 .cmp-to{font-family:var(--font-display);font-size:16px;color:var(--text);font-weight:600}
 .cmp-arrow{font-family:var(--font-mono);font-size:12px;font-weight:600}
-.cmp-arrow.up{color:var(--neg)} .cmp-arrow.down{color:var(--pos);text-shadow:0 0 12px var(--g1)}
 .cmp-mono{font-family:var(--font-mono);font-size:10px;color:var(--text-4)}
 
 @media (max-width:860px){
