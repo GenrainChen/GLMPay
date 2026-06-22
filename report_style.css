@@ -202,7 +202,6 @@ body .fx-noise{
 .panel .legend-inline i{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:middle;margin-right:5px}
 
 /* —— 趋势柱 —— */
-.trend-wrap{display:flex;flex-direction:column}
 .trend{display:flex;gap:4px;align-items:flex-end;height:206px;border-bottom:1px solid var(--border);
   padding-bottom:4px;position:relative;
   background-image:repeating-linear-gradient(0deg,transparent 0,transparent 50px,rgba(92,200,255,.07) 50px,rgba(92,200,255,.07) 51px)}
@@ -382,7 +381,6 @@ body .fx-noise{
 .saving-sub{font-family:var(--font-mono);font-size:11px;color:var(--text-4)}
 .saving-note{font-family:var(--font-mono);font-size:11px;color:var(--text-4);margin-top:11px;
   line-height:1.65;padding:0 4px;border-left:1px solid var(--border-glow);padding-left:11px}
-.saving-tables{display:grid;grid-template-columns:1fr 1fr;gap:13px}
 
 /* 缓存节省 */
 .cache-wrap{display:grid;grid-template-columns:1fr 2.4fr;gap:13px;margin-bottom:26px}
